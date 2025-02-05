@@ -1,0 +1,1069 @@
+---
+title: "EORTC HNSCC ICI Honore et al_02032025"
+output: html_notebook
+---
+library(swimplot)
+library(grid)
+library(gtable)
+library(readr) 
+library(mosaic)
+library(dplyr) 
+library(survival) 
+library(survminer) 
+library(ggplot2)
+library(scales)
+library(coxphf)
+library(ggthemes)
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(parameters)
+library(car)
+library(ComplexHeatmap)
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(DT)
+library(pROC)
+library(rms)
+
+#ctDNA Detection Rates by Window and Stages
+```{r}
+#ctDNA at Baseline
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data$ctDNA.Base <- factor(circ_data$ctDNA.Base, levels=c("NEGATIVE","POSITIVE"))
+circ_data <- subset(circ_data, ctDNA.Base %in% c("NEGATIVE", "POSITIVE"))
+circ_data$Stage <- factor(circ_data$Stage, levels=c("O","I","II","III","IV"))
+positive_counts_by_stage <- aggregate(circ_data$ctDNA.Base == "POSITIVE", by=list(circ_data$Stage), FUN=sum)
+total_counts_by_stage <- aggregate(circ_data$ctDNA.Base, by=list(circ_data$Stage), FUN=length)
+combined_data <- data.frame(
+  Stage = total_counts_by_stage$Group.1,
+  Total_Count = total_counts_by_stage$x,
+  Positive_Count = positive_counts_by_stage$x,
+  Rate = (positive_counts_by_stage$x / total_counts_by_stage$x) * 100  # Convert to percentage
+)
+combined_data$Rate <- sprintf("%.2f%%", combined_data$Rate)
+overall_total_count <- nrow(circ_data)
+overall_positive_count <- nrow(circ_data[circ_data$ctDNA.Base == "POSITIVE",])
+overall_positivity_rate <- (overall_positive_count / overall_total_count) * 100  # Convert to percentage
+overall_row <- data.frame(
+  Stage = "Overall",
+  Total_Count = overall_total_count,
+  Positive_Count = overall_positive_count,
+  Rate = sprintf("%.2f%%", overall_positivity_rate)
+)
+combined_data <- rbind(combined_data, overall_row)
+print(combined_data)
+
+#ctDNA post-treatment
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.postTx!="",]
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels=c("NEGATIVE","POSITIVE"))
+circ_data$Stage <- factor(circ_data$Stage, levels=c("O","I","II","III","IV"))
+positive_counts_by_stage <- aggregate(circ_data$ctDNA.postTx == "POSITIVE", by=list(circ_data$Stage), FUN=sum)
+total_counts_by_stage <- aggregate(circ_data$ctDNA.postTx, by=list(circ_data$Stage), FUN=length)
+combined_data <- data.frame(
+  Stage = total_counts_by_stage$Group.1,
+  Total_Count = total_counts_by_stage$x,
+  Positive_Count = positive_counts_by_stage$x,
+  Rate = (positive_counts_by_stage$x / total_counts_by_stage$x) * 100  # Convert to percentage
+)
+combined_data$Rate <- sprintf("%.2f%%", combined_data$Rate)
+overall_total_count <- nrow(circ_data)
+overall_positive_count <- nrow(circ_data[circ_data$ctDNA.postTx == "POSITIVE",])
+overall_positivity_rate <- (overall_positive_count / overall_total_count) * 100  # Convert to percentage
+overall_row <- data.frame(
+  Stage = "Overall",
+  Total_Count = overall_total_count,
+  Positive_Count = overall_positive_count,
+  Rate = sprintf("%.2f%%", overall_positivity_rate)
+)
+combined_data <- rbind(combined_data, overall_row)
+print(combined_data)
+```
+
+
+
+#Overview plot
+```{r}
+setwd("~/Downloads") 
+clinstage <- read.csv("EORTC ICI_OP.csv")
+clinstage_df <- as.data.frame(clinstage)
+
+# Creating the basic swimmer plot
+oplot <- swimmer_plot(df=clinstage_df,
+                      id='PatientName',
+                      end='fu.diff.months',
+                      fill='gray',
+                      width=.01)
+
+# Adding themes and scales
+oplot <- oplot + theme(panel.border = element_blank())
+oplot <- oplot + scale_y_continuous(breaks = seq(0, 48, by = 3))
+oplot <- oplot + labs(x ="Patients", y="Months from Immunotherapy Start")
+
+# Adding swimmer points
+oplot_ev1 <- oplot + swimmer_points(df_points=clinstage_df,
+                                    id='PatientName',
+                                    time='date.diff.months',
+                                    name_shape ='Event_type',
+                                    name_col = 'Event',
+                                    size=3.5,fill='black')
+# Optionally uncomment and use col='darkgreen' if needed
+
+# Adding shape manual scale
+oplot_ev1.1 <- oplot_ev1 + ggplot2::scale_shape_manual(name="Event_type",
+                                                       values=c(1,16,6,4),
+                                                       breaks=c('ctDNA_neg','ctDNA_pos','Imaging','Death'))
+
+# Display the plot
+oplot_ev1.1
+                                    oplot_ev2 <- oplot_ev1.1 + swimmer_lines(df_lines=clinstage_df,
+                                                                             id='PatientName',
+                                                                             start='Tx_start.months',
+                                                                             end='Tx_end.months',
+                                                                             name_col='Tx_type',
+                                                                             size=3.5,
+                                                                             name_alpha = 1.0)
+                                    oplot_ev2 <- oplot_ev2 + guides(linetype = guide_legend(override.aes = list(size = 5, color = "black")))
+                                    oplot_ev2
+oplot_ev2.2 <- oplot_ev2 + ggplot2::scale_color_manual(name="Event",values=c( "orange", "black", "black", "lightblue", "green", "red"))
+oplot_ev2.2
+```
+
+#Overview plot - stratified by BOR
+```{r}
+setwd("~/Downloads") 
+clinstage <- read.csv("EORTC ICI_OP.csv")
+clinstage_df <- as.data.frame(clinstage)
+
+# Creating the basic swimmer plot
+oplot_stratify <-swimmer_plot(df=clinstage_df,
+                              id='PatientName',
+                              end='fu.diff.months',
+                              col="gray",
+                              alpha=0.75,
+                              width=.01,
+                              base_size = 14,
+                              stratify= c('RECIST'))
+oplot_stratify <- oplot_stratify + theme(panel.border = element_blank())
+oplot_stratify <- oplot_stratify + scale_y_continuous(breaks = seq(0, 42, by = 3))
+oplot_stratify <- oplot_stratify + labs(x ="Patients" , y="Months from Immunotherapy Start")
+
+# Adding swimmer points
+oplot_ev1 <- oplot_stratify + swimmer_points(df_points=clinstage_df,
+                                    id='PatientName',
+                                    time='date.diff.months',
+                                    name_shape ='Event_type',
+                                    name_col = 'Event',
+                                    size=3.5,fill='black')
+# Optionally uncomment and use col='darkgreen' if needed
+
+# Adding shape manual scale
+oplot_ev1.1 <- oplot_ev1 + ggplot2::scale_shape_manual(name="Event_type",
+                                                       values=c(1,16,6,4),
+                                                       breaks=c('ctDNA_neg','ctDNA_pos','Imaging','Death'))
+
+# Display the plot
+oplot_ev1.1
+                                    oplot_ev2 <- oplot_ev1.1 + swimmer_lines(df_lines=clinstage_df,
+                                                                             id='PatientName',
+                                                                             start='Tx_start.months',
+                                                                             end='Tx_end.months',
+                                                                             name_col='Tx_type',
+                                                                             size=3.5,
+                                                                             name_alpha = 1.0)
+                                    oplot_ev2 <- oplot_ev2 + guides(linetype = guide_legend(override.aes = list(size = 5, color = "black")))
+                                    oplot_ev2
+oplot_ev2.2 <- oplot_ev2 + ggplot2::scale_color_manual(name="Event",values=c( "orange", "black", "black", "lightblue", "green", "red"))
+oplot_ev2.2
+```
+
+#Association of Baseline ctDNA MTM levels with clinicopathological factors
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+tally(~cT.Status, data=circ_data, margins = TRUE)
+circ_data$cT.Status <- factor(circ_data$cT.Status, levels = c("cT0-T2","cT3-T4"), labels = c("cT0-T2 (n=11)","cT3-T4 (n=17)"))
+boxplot(ctDNA.Base.MTM~cT.Status, data=circ_data, main="ctDNA pre-treatment MTM - cT status", xlab="cT status", ylab="MTM/mL", col="white",border="black")
+m3<-wilcox.test(ctDNA.Base.MTM ~ cT.Status, data=circ_data, na.rm=TRUE, exact=FALSE, conf.int=TRUE)
+print(m3)
+
+tally(~cN.Status, data=circ_data, margins = TRUE)
+circ_data$cN.Status <- factor(circ_data$cN.Status, levels = c("cN0","cN1-N3"), labels = c("cN0 (n=12)","cN1-N3 (n=15)"))
+boxplot(ctDNA.Base.MTM~cN.Status, data=circ_data, main="ctDNA pre-treatment MTM - cN status", xlab="cN status", ylab="MTM/mL", col="white",border="black")
+m4<-wilcox.test(ctDNA.Base.MTM ~ cN.Status, data=circ_data, na.rm=TRUE, exact=FALSE, conf.int=TRUE)
+print(m4)
+```
+
+#Median MTM/mL levels for ctDNA positive pts pre-treatment
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+
+median_ctDNA <- median(circ_data$ctDNA.Base.MTM, na.rm = TRUE)
+range_ctDNA <- range(circ_data$ctDNA.Base.MTM, na.rm = TRUE)
+cat("Median MTM/mL post-treatment:", median_ctDNA, "\n")
+cat("Range MTM/mL post-treatment:", range_ctDNA[1], "-", range_ctDNA[2], "\n")
+```
+
+#Median MTM/mL levels for ctDNA positive pts post-treatment
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.postTx!="",]
+circ_data <- circ_data[circ_data$ctDNA.postTx=="POSITIVE",]
+
+median_ctDNA <- median(circ_data$ctDNA.postTx.MTM, na.rm = TRUE)
+range_ctDNA <- range(circ_data$ctDNA.postTx.MTM, na.rm = TRUE)
+cat("Median MTM/mL post-treatment:", median_ctDNA, "\n")
+cat("Range MTM/mL post-treatment:", range_ctDNA[1], "-", range_ctDNA[2], "\n")
+```
+
+#Median time from end treatment to progression for ctDNA negative pts post-treatment
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.postTx!="",]
+circ_data <- circ_data[circ_data$ctDNA.postTx=="NEGATIVE",]
+circ_data <- circ_data[circ_data$PFS.Event=="TRUE",]
+
+median_PFS <- median(circ_data$PFS.months, na.rm = TRUE)
+range_PFS <- range(circ_data$PFS.months, na.rm = TRUE)
+cat("Median PFS:", median_PFS, "\n")
+cat("Range PFS:", range_PFS[1], "-", range_PFS[2], "\n")
+```
+
+#PFS by ctDNA status post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.postTx!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)~ctDNA.postTx, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ctDNA.postTx) %>%
+  summarise(
+    Total = n(),
+    Events = sum(PFS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.postTx, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="PFS - ctDNA Post/Under treatment", ylab= "Progression-Free Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+summary(KM_curve, times= c(0, 12, 24, 36))
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels=c("NEGATIVE","POSITIVE"))
+cox_fit <- coxph(surv_object ~ ctDNA.postTx, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels = c("NEGATIVE", "POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$PFS.Event <- factor(circ_data$PFS.Event, levels = c("FALSE", "TRUE"), labels = c("No Progression", "Progression"))
+contingency_table <- table(circ_data$ctDNA.postTx, circ_data$PFS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA status post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Progression",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("No Progression" = "blue", "Progression" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#OS by ctDNA status post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.postTx!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$OS.months, event = circ_data$OS.Event)~ctDNA.postTx, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ctDNA.postTx) %>%
+  summarise(
+    Total = n(),
+    Events = sum(OS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.postTx, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="OS - ctDNA Post/Under treatment", ylab= "Overall Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+summary(KM_curve, times= c(12, 24, 36))
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels=c("NEGATIVE","POSITIVE"))
+cox_fit <- coxph(surv_object ~ ctDNA.postTx, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels = c("NEGATIVE", "POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$OS.Event <- factor(circ_data$OS.Event, levels = c("FALSE", "TRUE"), labels = c("Alive", "Deceased"))
+contingency_table <- table(circ_data$ctDNA.postTx, circ_data$OS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA status post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Living Status",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Alive" = "blue", "Deceased" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#Association of ctDNA status post/during-ICI with BOR
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.postTx <- factor(circ_data$ctDNA.postTx, levels = c("NEGATIVE", "POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$RESIST <- factor(circ_data$RESIST, levels = c("CR", "PR", "SD", "PD"))
+contingency_table <- table(circ_data$ctDNA.postTx, circ_data$RESIST)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA status post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "BOR",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("CR" = "blue", "PR" = "lightblue", "SD" = "orange", "PD" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#PFS by ctDNA kinetics post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ΔctDNA!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)~ΔctDNA, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ΔctDNA) %>%
+  summarise(
+    Total = n(),
+    Events = sum(PFS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+KM_curve <- survfit(surv_object ~ ΔctDNA, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="PFS - ctDNA Kinetics Post/Under treatment", ylab= "Progression-Free Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("Decreased ΔctDNA", "Increased ΔctDNA"), legend.title="")
+summary(KM_curve, times= c(0, 12, 24, 36))
+circ_data$ΔctDNA <- factor(circ_data$ΔctDNA, levels=c("NEGATIVE","POSITIVE"))
+cox_fit <- coxph(surv_object ~ ΔctDNA, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$ΔctDNA <- factor(circ_data$ΔctDNA, levels = c("NEGATIVE", "POSITIVE"), labels = c("Decreased", "Increased"))
+circ_data$PFS.Event <- factor(circ_data$PFS.Event, levels = c("FALSE", "TRUE"), labels = c("No Progression", "Progression"))
+contingency_table <- table(circ_data$ΔctDNA, circ_data$PFS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA kinetics post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Progression",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("No Progression" = "blue", "Progression" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#OS by ctDNA kinetics post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ΔctDNA!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$OS.months, event = circ_data$OS.Event)~ΔctDNA, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ΔctDNA) %>%
+  summarise(
+    Total = n(),
+    Events = sum(OS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+KM_curve <- survfit(surv_object ~ ΔctDNA, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="OS - ctDNA Kinetics Post/Under treatment", ylab= "Overall Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("Decreased ΔctDNA", "Increased ΔctDNA"), legend.title="")
+summary(KM_curve, times= c(0, 12, 24, 36))
+circ_data$ΔctDNA <- factor(circ_data$ΔctDNA, levels=c("NEGATIVE","POSITIVE"))
+cox_fit <- coxph(surv_object ~ ΔctDNA, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$ΔctDNA <- factor(circ_data$ΔctDNA, levels = c("NEGATIVE", "POSITIVE"), labels = c("Decreased", "Increased"))
+circ_data$OS.Event <- factor(circ_data$OS.Event, levels = c("FALSE", "TRUE"), labels = c("Alive", "Deceased"))
+contingency_table <- table(circ_data$ΔctDNA, circ_data$OS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA kinetics post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Vital Status",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Alive" = "blue", "Deceased" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#Association of ctDNA kinetics post/during-ICI with BOR
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ΔctDNA!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ΔctDNA <- factor(circ_data$ΔctDNA, levels = c("NEGATIVE", "POSITIVE"), labels = c("Decreased", "Increased"))
+circ_data$RESIST <- factor(circ_data$RESIST, levels = c("CR", "PR", "SD", "PD"))
+contingency_table <- table(circ_data$ΔctDNA, circ_data$RESIST)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA kinetics post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "BOR",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("CR" = "blue", "PR" = "lightblue", "SD" = "orange", "PD" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#PFS by ctDNA clearance post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+
+survfit(Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)~ctDNA.Dynamics, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ctDNA.Dynamics) %>%
+  summarise(
+    Total = n(),
+    Events = sum(PFS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Dynamics, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="PFS - ctDNA clearance Post/Under treatment", ylab= "Progression-Free Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("Clearance", "No Clearance"), legend.title="")
+summary(KM_curve, times= c(0, 12, 24, 36))
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance"))
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+# Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$PFS.Event <- factor(circ_data$PFS.Event, levels = c("FALSE", "TRUE"), labels = c("No Progression", "Progression"))
+contingency_table <- table(circ_data$ctDNA.Dynamics, circ_data$PFS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA clearance post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Progression",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("No Progression" = "blue", "Progression" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#OS by ctDNA clearance post/during-ICI
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+
+survfit(Surv(time = circ_data$OS.months, event = circ_data$OS.Event)~ctDNA.Dynamics, data = circ_data)
+event_summary <- circ_data %>%
+  group_by(ctDNA.Dynamics) %>%
+  summarise(
+    Total = n(),
+    Events = sum(OS.Event),
+    Fraction = Events / n(),
+    Percentage = (Events / n()) * 100
+  )
+print(event_summary)
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Dynamics, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="OS - ctDNA clearance Post/Under treatment", ylab= "Overall Survival", xlab="Months from Start of Immunotherapy", legend.labs=c("Clearance", "No Clearance"), legend.title="")
+summary(KM_curve, times= c(0, 12, 24, 36))
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance"))
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+# Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+circ_data$OS.Event <- factor(circ_data$OS.Event, levels = c("FALSE", "TRUE"), labels = c("Alive", "Deceased"))
+contingency_table <- table(circ_data$ctDNA.Dynamics, circ_data$OS.Event)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA clearance post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "Vital Status",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Alive" = "blue", "Deceased" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#Association of ctDNA clearance post/during-ICI with BOR
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance"))
+circ_data$RESIST <- factor(circ_data$RESIST, levels = c("CR", "PR", "SD", "PD"))
+contingency_table <- table(circ_data$ctDNA.Dynamics, circ_data$RESIST)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+fisher_exact_test <- fisher.test(contingency_table)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+ggplot(table_df, aes(x = Var1, y = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA clearance post/under-treatment", 
+       x = "ctDNA", 
+       y = "Patients (%)", 
+       fill = "BOR",
+       caption = paste("Fisher's exact test p-value: ", format.pval(fisher_exact_test$p.value))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("CR" = "blue", "PR" = "lightblue", "SD" = "orange", "PD" = "red")) + # define custom colors
+  theme(axis.text.x = element_text(angle = 0, hjust = 1.5, size = 14), # increase x-axis text size
+        axis.text.y = element_text(size = 14, color = "black"), # increase y-axis text size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Progression label size
+```
+
+#Multivariate cox regression for PFS
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance"))
+circ_data$Inclusion.status <- factor(circ_data$Inclusion.status, levels = c("Loco-regional", "Metastatic"))
+circ_data$p16.status <- factor(circ_data$p16.status, levels = c("Negative", "Positive"))
+circ_data$CPS.Scorev2 <- factor(circ_data$CPS.Scorev2, levels = c("≥1", "<1"))
+surv_object <- Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event) 
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics + Age + Inclusion.status + p16.status + CPS.Scorev2, data=circ_data) 
+ggforest(cox_fit, data = circ_data, main = "Multivariate Regression Model for PFS", refLabel = "Reference Group")
+test.ph <- cox.zph(cox_fit)
+```
+
+
+#Univariate PFS cox regression for variables included in MVA
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance")) #univariate for ctDNA clearance post-treatment
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+cox_fit <- coxph(surv_object ~ Age, data=circ_data) #univariate for age
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+circ_data$Inclusion.status <- factor(circ_data$Inclusion.status, levels = c("Loco-regional", "Metastatic")) #univariate for Stage/disease status
+cox_fit <- coxph(surv_object ~ Inclusion.status, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+circ_data$p16.status <- factor(circ_data$p16.status, levels = c("Negative", "Positive")) #univariate for p16 status
+cox_fit <- coxph(surv_object ~ p16.status, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$PFS.months, event = circ_data$PFS.Event)
+circ_data$CPS.Scorev2 <- factor(circ_data$CPS.Scorev2, levels = c("≥1", "<1")) #univariate for CPS score
+cox_fit <- coxph(surv_object ~ CPS.Scorev2, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+#Univariate OS cox regression for variables included in MVA
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance")) #univariate for ctDNA clearance post-treatment
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+cox_fit <- coxph(surv_object ~ Age, data=circ_data) #univariate for age
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+circ_data$Inclusion.status <- factor(circ_data$Inclusion.status, levels = c("Loco-regional", "Metastatic")) #univariate for Stage/disease status
+cox_fit <- coxph(surv_object ~ Inclusion.status, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+circ_data$p16.status <- factor(circ_data$p16.status, levels = c("Negative", "Positive")) #univariate for p16 status
+cox_fit <- coxph(surv_object ~ p16.status, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+surv_object <-Surv(time = circ_data$OS.months, event = circ_data$OS.Event)
+circ_data$CPS.Scorev2 <- factor(circ_data$CPS.Scorev2, levels = c("≥1", "<1")) #univariate for CPS score
+cox_fit <- coxph(surv_object ~ CPS.Scorev2, data=circ_data)
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+#Multivariate cox regression for OS
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("EORTC HNSCC ICI Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.available=="TRUE",]
+circ_data <- circ_data[circ_data$ctDNA.Base!="",]
+circ_data <- circ_data[circ_data$ctDNA.Base=="POSITIVE",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.Dynamics <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "NEGATIVE" ~ 1,
+    ctDNA.Base == "POSITIVE" & ctDNA.postTx == "POSITIVE" ~ 2
+  ))
+
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2"), labels = c("Clearance", "No Clearance"))
+circ_data$Inclusion.status <- factor(circ_data$Inclusion.status, levels = c("Loco-regional", "Metastatic"))
+circ_data$p16.status <- factor(circ_data$p16.status, levels = c("Negative", "Positive"))
+circ_data$CPS.Scorev2 <- factor(circ_data$CPS.Scorev2, levels = c("≥1", "<1"))
+surv_object <- Surv(time = circ_data$OS.months, event = circ_data$OS.Event) 
+cox_fit <- coxph(surv_object ~ ctDNA.Dynamics + Age + Inclusion.status + p16.status + CPS.Scorev2, data=circ_data) 
+ggforest(cox_fit, data = circ_data, main = "Multivariate Regression Model for OS", refLabel = "Reference Group")
+test.ph <- cox.zph(cox_fit)
+```
+
